@@ -14,6 +14,56 @@ methodology and I'll do my best."*
 
 > Measure how much your numbers wobble when you change nothing; only then is a difference a difference.
 
+
+## The harness
+
+`benchrun.py` implements the method as running code — because a methodology nobody executes is a
+suggestion. Zero dependencies, standard library only.
+
+```bash
+# 1. measure your noise floor: same command, N times, nothing changed
+python3 benchrun.py floor --runs 5 --warmups 1 --label my-floor \
+    --csv-column avg_ts -- <your workload>
+
+# 2. test an option: interleaved control/treatment, pre-committed threshold
+python3 benchrun.py compare --pairs 5 --warmups 1 --threshold 5.6 \
+    --label hiz-wa \
+    --control-var radv_gfx12_hiz_wa=full \
+    --treat-var   radv_gfx12_hiz_wa=disabled \
+    -- <your workload>
+
+# 3. the negative control — MUST come back "no effect"
+python3 benchrun.py compare --pairs 5 --threshold 5.6 --negative-control \
+    --label NEGATIVE-CONTROL \
+    --control-var radv_gfx12_hiz_wa=full --treat-var radv_gfx12_hiz_wa=full \
+    -- <your workload>
+```
+
+It **refuses to run a comparison without a pre-committed `--threshold`**, because deciding what counts
+after seeing the data is the exact move this method exists to prevent. And it **refuses to report at all**
+when the extracted metric is a constant — see below.
+
+## Two bugs this tool caught in itself, both of the same kind
+
+Worth publishing, because they are the failure mode the method is for, committed by the tool that
+preaches it:
+
+1. **A table of zeros reported as a success.** The first metric extractor took the last number on a line
+   and therefore read `stddev_ts` (`0.000000`) instead of `avg_ts`. Three runs of `0.0` were compared,
+   a `+0.00%` effect was computed, and the tool announced it was *"behaving."* **A constant is not a
+   measurement.**
+2. **A quoted field with commas in it.** The next version split rows on `,` by hand. `gpu_info` contains
+   commas, so rows had 43 fields against a 41-column header and every index shifted — `avg_ts` read as a
+   nanosecond count (`~1.03e9` instead of `~52`). **A parser that cannot detect its own misalignment
+   reports numbers confidently.**
+
+Both now have fixes *and* guards: a real CSV reader with a row-length assertion, and a `sanity_guard()`
+that refuses the whole run when the metric is all-zero or perfectly constant.
+
+**The honest lesson: the tool was wrong twice and reported success twice. That is why the noise floor
+and the negative control are not optional steps.**
+
+
 ## What it covers
 
 - **The noise floor first.** Run identical configs N≥5 times; the spread you observe *is* your
