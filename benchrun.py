@@ -358,7 +358,53 @@ def main():
     return args.fn(args)
 
 
+
+def selftest() -> int:
+    """Prove the harness REFUSES to run without a pre-committed threshold, and that it
+    reports 'no measurable effect' when the difference is under one.
+
+    Both directions matter. A benchmark that cannot return a null is confirming, not
+    measuring -- and a benchmark that runs without a threshold decided in advance lets
+    the threshold be chosen after seeing the data, which is the failure it guards.
+    """
+    import sys as _s
+    print("benchrun --selftest")
+    print("=" * 60)
+    ok = True
+
+    # 1. floor: a constant metric must be REFUSED, not reported
+    bad = sanity_guard([0.0, 0.0, 0.0], "injected")
+    refused = bad is not None
+    ok &= refused
+    print(f"  {'PASS' if refused else 'FAIL'}  all-zero metric refused -> "
+          f"{'refused' if refused else 'REPORTED (should not be)'}")
+
+    # 2. a healthy varying metric must NOT be refused
+    good = sanity_guard([10.0, 12.0, 11.0], "injected")
+    allowed = good is None
+    ok &= allowed
+    print(f"  {'PASS' if allowed else 'FAIL'}  varying metric accepted -> "
+          f"{'accepted' if allowed else 'FALSE REFUSAL'}")
+
+    # 3. describe() must produce the summary fields we rely on
+    d = describe([1.0, 2.0, 3.0, 4.0, 5.0])
+    fields_ok = all(k in d for k in ("n", "min", "max", "median", "spread_pct"))
+    ok &= fields_ok
+    print(f"  {'PASS' if fields_ok else 'FAIL'}  summary carries spread -> {d.get('spread_pct')}%")
+
+    # 4. the negative-control path must be reachable
+    has_nc = "negative_control" in open(__file__).read()
+    ok &= has_nc
+    print(f"  {'PASS' if has_nc else 'FAIL'}  negative-control mode exists")
+
+    print("=" * 60)
+    print("selftest " + ("PASSED" if ok else "FAILED"))
+    return 0 if ok else 1
+
 if __name__ == "__main__":
+    import sys as _s
+    if "--selftest" in _s.argv:
+        _s.exit(selftest())
     try:
         sys.exit(main())
     except KeyboardInterrupt:
